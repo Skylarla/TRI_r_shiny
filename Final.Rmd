@@ -1,0 +1,172 @@
+---
+title: "Final"
+author: "Mengfan"
+date: "2022-12-04"
+output: html_document
+---
+```{r}
+library(shiny)
+library(leaflet)
+library(leaflet.extras)
+library(dplyr)
+library(sf)
+library(lubridate)
+library(ggplot2)
+library(riskyr)
+#library(rgdal)
+library(classInt)
+library(rsconnect)
+
+setwd("/Users/mengfanyu/Documents/r_shiny")
+
+TRI <- read.csv("TRIinfo.csv")
+census1 <- read.csv("census.csv")
+census2 <- read.csv("Wayne_census.csv")
+census_shp <- st_read("shapefile/census.shp")
+cs <- st_transform(census_shp, 4326)
+```
+
+
+```{r}
+ui <- navbarPage(
+            "Contaminants & Population", id="main",
+           tabPanel("Map", leafletOutput("mymap", height=700),
+                         absolutePanel(top=70, right=50,
+                              selectInput("pop", "Population:", c("Total Population", "White Population", "Minority Population")),
+                              selectInput("risks", "toxic release sites with different Predominant health risk:", c("hide","Carcinogen", "Cardiovascular toxicant", "Neurotoxicant", "Respiratory toxicant", "Developmental toxicant")),
+                              sliderInput("range", label = "toxic release sites with differnt Human Health Effects Score:", min(TRI$UTN_score), max(TRI$UTN_score), value = range(TRI$UTN_score), step = 1)
+                                      )
+                   ),
+           
+           tabPanel("Data Plots",plotOutput(outputId = "myplot", height = 600, width = 1000 ),
+                    absolutePanel(top = 70, left = 1020,
+                                  radioButtons("radio", label = h3("Select data:"),
+                                               choices = list("Ratio of release sites with differet toxic contaminant" = 1,
+                                                              "Quantity of release sites with differet Health Effect Score" = 2,
+                                                              "Population Composition of the Entire County" = 3,
+                                                              "Population Composition of Block Groups Located within a Mile of Toxic Release Sites" = 4),
+                                               selected = 1)
+                                  ),
+                    textOutput("desc")
+                    ),
+           
+           tabPanel("About",includeMarkdown("Readme.rmd")),
+           
+           tabPanel("Developers",includeMarkdown("developers.rmd"))
+                 )
+
+
+server <- function(input, output) {
+  pop1 <- reactive({
+    req(input$pop)  # Ensure the input is available
+    switch(input$pop,
+           "Total Population" = cs$POP_DEN,  # Replace with actual dataset
+           "White Population" = cs$WHITE_DEN,       # Replace with actual dataset
+           "Minority Population" = cs$MINORITY_D   # Replace with actual dataset
+    )
+  })
+
+  risk <- reactive({
+    req(input$risks)  # Ensure the input is available
+    switch(input$risks,
+       "hide" = subset(TRI, TRI$RISK_Main == ""),
+       "Carcinogen" = subset(TRI, TRI$RISK_Main == "Carcinogen"),
+       "Cardiovascular toxicant" = subset(TRI, TRI$RISK_Main == "Cardiovascular toxicant"),
+       "Neurotoxicant" = subset(TRI, TRI$RISK_Main == "Neurotoxicant"),
+       "Respiratory toxicant" = subset(TRI, TRI$RISK_Main == "Respiratory toxicant"),
+       "Developmental toxicant" = subset(TRI, TRI$RISK_Main == "Developmental toxicant"))
+  })
+  
+  
+  
+  output$mymap <- renderLeaflet({
+    pop1_data <- pop1()
+    risk_data <- risk()
+    
+    quantiles <- classIntervals(pop1_data, n=7, style='quantile')
+    pal_pop <- colorBin('YlGnBu', domain = pop1_data, bins=quantiles$brks)
+    filterScore <- subset(TRI,TRI$UTN_score >= input$range[1] & TRI$UTN_score <= input$range[2]) 
+    
+    leaflet( ) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      addPolygons(data = cs,stroke = FALSE, smoothFactor = 0.3, fillOpacity = 0.8,  fillColor = ~pal_pop(pop1_data),
+                  label = ~paste0( "Density: ", formatC(pop1_data, big.mark = ","))) %>%
+      addLegend(data = cs, "bottomright",title = 'Density(/square mile):', pal = pal_pop, values = ~pop1_data, opacity = 1.0,labFormat = labelFormat(transform = function(pop1_data)(pop1_data))) %>%
+
+      addCircles(data = filterScore,lng = ~Long, lat = ~Lat, weight = 1,radius = ~(UTN_score)^2*30, popup = ~USER_NAME,color = "red", fillOpacity = 0.1)%>%
+
+      addMarkers(data = risk_data,lng = ~Long, lat = ~Lat, popup = ~USER_NAME)%>%
+
+      addLayersControl(options = layersControlOptions(collapsed = FALSE))
+    
+  })
+  
+  output$myplot <- renderPlot({
+
+    cols <- c("#edf8b1","#c7e9b4","#7fcdbb","#41b6c4","#1d91c0")
+    lbls <- c("Carcinogen", "Cardiovascular toxicant", "Developmental toxicant", "Neurotoxicant", "Respiratory toxicant")
+
+    race <- c("White","Black","Asian", "Hispanic", "Other")
+    population1 <- c(sum(census1$WHITE),sum(census1$BLACK),sum(census1$ASIAN),sum(census1$HISPANIC),sum(census1$OTHER,census1$HAWN_PI))
+    racies1 <- data.frame(race,population1)
+    population2 <- c(sum(census2$WHITE),sum(census2$BLACK),sum(census2$ASIAN),sum(census2$HISPANIC),sum(census2$OTHER,census2$HAWN_PI))
+    racies2 <- data.frame(race,population2)
+
+    if(input$radio==1)
+      {
+      plot1 <- table(TRI$RISK_Main)
+      pct1 <- paste(round(plot1/sum(plot1)*100),"%")
+      pie(plot1, main="Toxic contaminant", labels = pct1, col = cols)
+      legend("topright",lbls,fill = cols)
+    }
+
+    else if(input$radio==2)
+      {
+       bar <- table(TRI$RISK_Main,TRI$UTN_score)
+       barplot(bar, main = "Quantity of Release Sites", xlab = "Scores", ylab = "Frequency",ylim = c(0, 20), col = cols)
+       legend("topright",lbls,fill = cols)
+     }
+
+    else if(input$radio==3)
+      {
+        pct2 <- paste(round(racies2$population2/sum(racies2$population2)*100),"%")
+        pie(racies2$population2,
+            labels = paste(racies2$race, sep = " ", pct2),
+            col = cols,
+            main = "Population Composition of the Entire County")
+      }
+
+    else
+      {
+        pct2 <- paste(round(racies1$population1/sum(racies1$population1)*100),"%")
+        pie(racies1$population1,
+            labels = paste(racies1$race, sep = " ", pct2),
+            col = cols,
+            main = "Population Composition of Block Groups Located within a Mile of Toxic Release Sites")
+      }
+
+
+
+
+
+  output$desc <- renderText({
+       text <-("About 42 percent of the population of block groups located with in a mile of toxic release sites is white. However, the white population account for about 51 percent of Wayne County’s total population. Compared to white population, more minority populations live in neighborhoods closer to toxic exposure points, and are at disproportionate risk of toxic exposure. ")
+       })
+
+  })
+  }
+
+shinyApp(ui = ui, server = server)
+```
+
+```{r}
+rsconnect::setAccountInfo(name='6bco4a-mengfan-yu',
+		  token='B74B4C7AD73AAD2296817CA43C17EC37',
+		  secret='XvWd7ji2Dz6wy98oKIJizduqi3HEv0K36rWB9VLm')
+
+library(rsconnect)
+    rsconnect::deployApp("/Users/mengfanyu/Documents/r_shiny")
+```
+
+
+

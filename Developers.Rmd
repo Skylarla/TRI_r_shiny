@@ -1,0 +1,11 @@
+<span style="background-color:#D1EEEE;"></span>
+
+# Data Sources
+Michigan Geographic Data Library https://quod.lib.umich.edu/m/mdnr-bib/  
+Environmental Protection Agency https://www.epa.gov/toxics-release-inventory-tri-program  
+Census https://www.census.gov/  
+
+# Developer
+
+### Mengfan Yu
+Email: mengfany@umich.edu  
