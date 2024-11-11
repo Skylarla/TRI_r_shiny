@@ -159,14 +159,7 @@ server <- function(input, output) {
 shinyApp(ui = ui, server = server)
 ```
 
-```{r}
-rsconnect::setAccountInfo(name='6bco4a-mengfan-yu',
-		  token='B74B4C7AD73AAD2296817CA43C17EC37',
-		  secret='XvWd7ji2Dz6wy98oKIJizduqi3HEv0K36rWB9VLm')
 
-library(rsconnect)
-    rsconnect::deployApp("/Users/mengfanyu/Documents/r_shiny")
-```
 
 
 
